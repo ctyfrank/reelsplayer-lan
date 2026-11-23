@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">ReelsPlayer LAN</string>
+    <string name="landing_subtitle">Pick a folder with videos</string>
+    <string name="pick_folder">Pick folder</string>
+    <string name="lan_button">LAN servers</string>
+    <string name="speed_label" translatable="false">2x</string>
+    <string name="counter_format" translatable="false">%1$d / %2$d</string>
+    <string name="scanning_format">Scanning… %1$d videos found</string>
+    <string name="scanning_lan_format">Scanning share… %1$d videos found</string>
+    <string name="no_videos">No videos found in this folder</string>
+
+    <string name="servers_title">LAN servers</string>
+    <string name="add_server">Add server</string>
+    <string name="edit_server">Edit</string>
+    <string name="delete_server">Delete</string>
+    <string name="delete_server_title">Delete this server?</string>
+    <string name="delete_server_message">“%1$s” and its saved password will be removed.</string>
+    <string name="test_connection">Test</string>
+    <string name="connecting">Connecting…</string>
+    <string name="connection_ok">Connected — shares found: %1$d</string>
+    <string name="connection_failed">Connection failed: %1$s</string>
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+    <string name="back">Back</string>
+    <string name="empty_servers">No servers yet</string>
+    <string name="empty_servers_hint">Add your NAS or PC share to stream videos over the LAN. Passwords are encrypted with the Android keystore.</string>
+
+    <string name="server_label">Name</string>
+    <string name="server_label_hint">Living room NAS</string>
+    <string name="server_host">Host</string>
+    <string name="server_host_hint">192.168.1.10 or nas.local</string>
+    <string name="server_port">Port</string>
+    <string name="server_share">Share</string>
+    <string name="server_share_hint">media (optional)</string>
+    <string name="server_user">Username</string>
+    <string name="server_password">Password</string>
+    <string name="server_domain">Domain</string>
+    <string name="server_guest">Guest / anonymous</string>
+    <string name="server_smb1">Legacy SMB1 device</string>
+    <string name="host_required">Host is required</string>
+
+    <string name="browse_share_root">Shares</string>
+    <string name="play_this_folder">Play this folder</string>
+    <string name="empty_folder">No subfolders</string>
+
+    <string name="playback_error">This video could not be played</string>
+    <string name="error_auth">Wrong username or password</string>
+    <string name="error_access_denied">Access denied</string>
+    <string name="error_share_not_found">Share or folder not found</string>
+    <string name="error_unknown_host">Host not found</string>
+    <string name="error_timeout">Connection timed out</string>
+    <string name="error_unreachable">Cannot reach the server</string>
+    <string name="error_generic">Something went wrong</string>
+</resources>
