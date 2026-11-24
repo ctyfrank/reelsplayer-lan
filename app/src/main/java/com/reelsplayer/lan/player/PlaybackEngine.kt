@@ -19,6 +19,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.reelsplayer.lan.logging.AppLog
 import com.reelsplayer.lan.smb.ServerStore
 import com.reelsplayer.lan.smb.SmbDataSource
+import com.reelsplayer.lan.smb.SmbSession
 import com.reelsplayer.lan.smb.SmbUri
 import java.io.File
 import java.util.Collections
@@ -106,7 +107,9 @@ object PlaybackEngine {
     fun prefetch(uri: Uri) {
         // Only LAN playback benefits: local files are already fast and prefetching a
         // metered connection would burn the user's data plan.
-        if (!SmbUri.isSmb(uri)) return
+        val serverId = SmbUri.serverId(uri) ?: return
+        val path = SmbUri.path(uri)
+        if (path.isBlank()) return
         val context = appContext ?: return
         if (isMetered(context)) return
         val factory = cacheDataSourceFactory ?: return
@@ -116,6 +119,12 @@ object PlaybackEngine {
             var dataSource: DataSource? = null
             val startedAt = android.os.SystemClock.elapsedRealtime()
             try {
+                // jcifs opens files unshared: never touch a file a player already holds.
+                if (SmbSession.isOpen(serverId, path)) {
+                    AppLog.d(TAG, "prefetch skipped (in use) path=/$path")
+                    prefetchedUris.remove(uri.toString())
+                    return@execute
+                }
                 dataSource = factory.createDataSource()
                 dataSource.open(DataSpec.Builder().setUri(uri).setLength(PREFETCH_BYTES).build())
                 val buffer = ByteArray(256 * 1024)
@@ -124,6 +133,8 @@ object PlaybackEngine {
                     val read = dataSource.read(buffer, 0, buffer.size)
                     if (read == C.RESULT_END_OF_INPUT) break
                     total += read
+                    // The user swiped to this item: hand the file over immediately.
+                    if (SmbSession.isOpen(serverId, path)) break
                 }
                 AppLog.d(
                     TAG,

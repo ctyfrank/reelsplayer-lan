@@ -20,6 +20,10 @@ import jcifs.smb.SmbRandomAccessFile
  * The source is seekable (the player needs that for MP4 and for scrubbing) and every
  * open keeps a 1 MiB read-ahead window, so playback does one round trip per megabyte
  * instead of one per read call.
+ *
+ * jcifs opens SMB files unshared, so two handles on the same path make the server answer
+ * `STATUS_SHARING_VIOLATION`. Opens are therefore reported to [SmbSession] and callers such as
+ * the prefetcher check that registry before touching a file a player already holds.
  */
 @UnstableApi
 class SmbDataSource(
@@ -34,6 +38,11 @@ class SmbDataSource(
     private var bytesRead: Long = 0
     private var seekCount: Int = 0
     private var openedAt: Long = 0
+
+    /** True once [open] succeeded, i.e. a [DataSpec] reached [transferStarted]. */
+    private var started = false
+    private var openKeyOwner: String? = null
+    private var openKeyPath: String? = null
 
     override fun open(dataSpec: DataSpec): Long {
         transferInitializing(dataSpec)
@@ -107,6 +116,9 @@ class SmbDataSource(
         }
         bytesRead = 0
         openedAt = SystemClock.elapsedRealtime()
+        openKeyOwner = serverId
+        openKeyPath = path
+        SmbSession.markOpen(serverId, path)
 
         AppLog.i(
             TAG,
@@ -114,6 +126,7 @@ class SmbDataSource(
                 "size=$length connect=${SystemClock.elapsedRealtime() - startedAt}ms"
         )
 
+        started = true
         transferStarted(dataSpec)
         return bytesRemaining
     }
@@ -153,7 +166,20 @@ class SmbDataSource(
         stream?.let { closeQuietly(it) }
         stream = null
         currentUri = null
-        transferEnded()
+
+        // transferEnded() must only follow a successful open: BaseDataSource keeps the
+        // DataSpec from transferStarted(), and calling it after a failed open feeds a null
+        // DataSpec to the bandwidth meter, which crashes the playback with an NPE.
+        if (started) {
+            started = false
+            transferEnded()
+        }
+
+        openKeyOwner?.let { owner ->
+            openKeyPath?.let { path -> SmbSession.markClosed(owner, path) }
+        }
+        openKeyOwner = null
+        openKeyPath = null
 
         if (wasOpen) {
             val elapsed = (SystemClock.elapsedRealtime() - openedAt).coerceAtLeast(1)

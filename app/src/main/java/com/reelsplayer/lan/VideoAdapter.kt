@@ -249,8 +249,9 @@ class VideoAdapter(
         }
         startProgressUpdates()
 
-        // Give the next clip a head start so swiping to it does not wait for the share.
-        videos.getOrNull(position + 1)?.let { (_, uri) -> PlaybackEngine.prefetch(uri) }
+        // Give the clip after the next one a head start: the adjacent page is already
+        // prepared by ExoPlayer, and prefetching it would fight the player for the file.
+        videos.getOrNull(position + 2)?.let { (_, uri) -> PlaybackEngine.prefetch(uri) }
     }
 
     private fun startProgressUpdates() {

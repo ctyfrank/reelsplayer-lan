@@ -39,6 +39,30 @@ object SmbSession {
 
     private val contexts = ConcurrentHashMap<String, CachedContext>()
 
+    /**
+     * Paths that currently have an open handle, keyed by "serverId|path".
+     *
+     * jcifs opens SMB files unshared, so a second open of the same path fails with
+     * STATUS_SHARING_VIOLATION. The prefetcher consults this registry to stay away from files
+     * a player is already reading.
+     */
+    private val openPaths = ConcurrentHashMap<String, Int>()
+
+    private fun openKey(serverId: String, path: String) = "$serverId|$path"
+
+    internal fun markOpen(serverId: String, path: String) {
+        openPaths.merge(openKey(serverId, path), 1, Int::plus)
+    }
+
+    internal fun markClosed(serverId: String, path: String) {
+        openPaths.computeIfPresent(openKey(serverId, path)) { _, count ->
+            if (count <= 1) null else count - 1
+        }
+    }
+
+    fun isOpen(serverId: String, path: String): Boolean =
+        openPaths.containsKey(openKey(serverId, path))
+
     /** Returns the (cached) authenticated context for [server]. */
     fun context(server: SmbServer): CIFSContext {
         val loginKey = server.sessionKey()
