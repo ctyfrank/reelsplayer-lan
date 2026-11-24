@@ -23,10 +23,13 @@ import com.google.android.material.snackbar.Snackbar
 import com.reelsplayer.lan.logging.AppLog
 import com.reelsplayer.lan.logging.UriDiagnostics
 import com.reelsplayer.lan.player.PlaybackEngine
+import com.reelsplayer.lan.settings.PlaybackSettings
 import com.reelsplayer.lan.ui.LogActivity
 
 class VideoAdapter(
-    private val videos: List<Pair<String, Uri>>
+    private val videos: List<Pair<String, Uri>>,
+    private val onEndMode: PlaybackSettings.OnEnd,
+    private val onRequestNext: (Int) -> Unit
 ) : RecyclerView.Adapter<VideoAdapter.VideoViewHolder>() {
 
     private val attachedHolders = mutableMapOf<Int, VideoViewHolder>()
@@ -39,6 +42,9 @@ class VideoAdapter(
     private val handler = Handler(Looper.getMainLooper())
     private var progressRunnable: Runnable? = null
     private var userPaused = false
+
+    /** Applied to the current item once it is attached, used when resuming a saved session. */
+    private var pendingSeekMs = 0L
 
     class VideoViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val playerView: PlayerView = view.findViewById(R.id.playerView)
@@ -86,14 +92,26 @@ class VideoAdapter(
         playerPositions[player] = position
         // A pooled player still holds the previous clip, so always reset the media item.
         player.setMediaItem(MediaItem.fromUri(uri), /* resetPosition = */ true)
-        player.repeatMode = ExoPlayer.REPEAT_MODE_ONE
+        player.repeatMode = if (onEndMode == PlaybackSettings.OnEnd.LOOP) {
+            ExoPlayer.REPEAT_MODE_ONE
+        } else {
+            ExoPlayer.REPEAT_MODE_OFF
+        }
         player.prepare()
         player.playWhenReady = (position == currentPosition)
+
+        if (pendingSeekMs > 0 && position == currentPosition) {
+            player.seekTo(pendingSeekMs)
+            pendingSeekMs = 0
+        }
 
         holder.attachedPosition = position
         attachedHolders[position] = holder
 
         setupTouchListener(holder)
+
+        // The first page is selected before it is attached, so restart the progress loop here.
+        if (position == currentPosition) startProgressUpdates()
     }
 
     @OptIn(UnstableApi::class)
@@ -121,6 +139,13 @@ class VideoAdapter(
                             view.context.startActivity(Intent(view.context, LogActivity::class.java))
                         }
                         .show()
+                }
+
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState != Player.STATE_ENDED) return
+                    if (onEndMode != PlaybackSettings.OnEnd.NEXT) return
+                    val position = playerPositions[player] ?: return
+                    onRequestNext(position)
                 }
             })
         }
@@ -198,6 +223,8 @@ class VideoAdapter(
             holder.pauseIcon.setImageResource(android.R.drawable.ic_media_pause)
             holder.pauseIcon.visibility = View.VISIBLE
         } else {
+            // In "pause at the end" mode the player sits at STATE_ENDED; restart from the top.
+            if (p.playbackState == Player.STATE_ENDED) p.seekTo(0)
             p.play()
             userPaused = false
             holder.pauseIcon.setImageResource(android.R.drawable.ic_media_play)
@@ -275,6 +302,15 @@ class VideoAdapter(
     fun pauseCurrent() {
         attachedHolders[currentPosition]?.player?.pause()
         progressRunnable?.let { handler.removeCallbacks(it) }
+    }
+
+    /** Position of the item on screen, for saving a resume point. */
+    fun currentPositionMs(): Long =
+        attachedHolders[currentPosition]?.player?.currentPosition ?: 0L
+
+    /** Resumes the current item at [ms] as soon as its player is attached. */
+    fun requestSeekTo(ms: Long) {
+        pendingSeekMs = ms
     }
 
     fun resumeCurrent() {

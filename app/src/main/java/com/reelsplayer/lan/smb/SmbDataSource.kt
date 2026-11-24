@@ -65,11 +65,16 @@ class SmbDataSource(
         val opened = try {
             SmbSession.openStream(server, path)
         } catch (e: Exception) {
-            AppLog.e(
-                TAG,
-                "open failed $descriptor pos=${dataSpec.position} length=${dataSpec.length}",
-                e
-            )
+            if (isCancellation(e)) {
+                // ExoPlayer cancels a load by interrupting it; that is not an error worth showing.
+                AppLog.d(TAG, "open cancelled $descriptor")
+            } else {
+                AppLog.e(
+                    TAG,
+                    "open failed $descriptor pos=${dataSpec.position} length=${dataSpec.length}",
+                    e
+                )
+            }
             throw DataSourceException(e, errorCodeOf(e))
         }
 
@@ -140,11 +145,15 @@ class SmbDataSource(
         val read = try {
             source.read(buffer, offset, toRead)
         } catch (e: Exception) {
-            AppLog.e(
-                TAG,
-                "read failed $descriptor at=${bytesRead} remaining=$bytesRemaining",
-                e
-            )
+            if (isCancellation(e)) {
+                AppLog.d(TAG, "read cancelled $descriptor at=$bytesRead")
+            } else {
+                AppLog.e(
+                    TAG,
+                    "read failed $descriptor at=${bytesRead} remaining=$bytesRemaining",
+                    e
+                )
+            }
             throw DataSourceException(e, errorCodeOf(e))
         }
 
@@ -203,6 +212,10 @@ class SmbDataSource(
         } catch (_: Exception) {
         }
     }
+
+    /** ExoPlayer cancels loads by interrupting the loading thread; jcifs reports that as a failure. */
+    private fun isCancellation(error: Throwable): Boolean =
+        generateSequence(error) { it.cause }.any { it is InterruptedException }
 
     private fun errorCodeOf(error: Throwable): Int {
         val smbError = generateSequence(error) { it.cause }

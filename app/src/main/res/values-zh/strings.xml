@@ -63,4 +63,13 @@
     <string name="log_view_action">查看日志</string>    <string name="exit_playback">退出播放</string>
     <string name="press_back_again">再按一次退出</string>
     <string name="resume_playback">继续播放</string>
-    <string name="resume_playback_format">继续播放（%1$d）</string></resources>
+    <string name="resume_playback_format">继续播放（%1$d）</string>    <string name="settings_button">设置</string>
+    <string name="settings_title">设置</string>
+    <string name="settings_order">播放顺序</string>
+    <string name="settings_order_sequential">顺序（按目录文件名）</string>
+    <string name="settings_order_shuffle">随机（每次打乱）</string>
+    <string name="settings_on_end">一个视频播完后</string>
+    <string name="settings_on_end_loop">循环播放</string>
+    <string name="settings_on_end_pause">暂停</string>
+    <string name="settings_on_end_next">播放下一个</string>
+    <string name="settings_hint">设置会在下次开始播放时生效。播放位置会自动记住，重新打开可以直接继续。</string></resources>

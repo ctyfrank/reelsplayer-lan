@@ -18,12 +18,16 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.documentfile.provider.DocumentFile
 import androidx.viewpager2.widget.ViewPager2
 import com.reelsplayer.lan.logging.AppLog
+import com.reelsplayer.lan.settings.PlaybackSettings
+import com.reelsplayer.lan.settings.ResumePoint
+import com.reelsplayer.lan.settings.ResumeStore
 import com.reelsplayer.lan.smb.ServerStore
 import com.reelsplayer.lan.smb.SmbErrors
 import com.reelsplayer.lan.smb.SmbSession
 import com.reelsplayer.lan.ui.BrowseActivity
 import com.reelsplayer.lan.ui.LogActivity
 import com.reelsplayer.lan.ui.ServersActivity
+import com.reelsplayer.lan.ui.SettingsActivity
 
 class MainActivity : AppCompatActivity() {
 
@@ -32,6 +36,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pickBtn: Button
     private lateinit var lanBtn: Button
     private lateinit var logBtn: Button
+    private lateinit var settingsBtn: Button
     private lateinit var resumeBtn: Button
     private lateinit var exitBtn: ImageButton
     private lateinit var viewPager: ViewPager2
@@ -39,16 +44,19 @@ class MainActivity : AppCompatActivity() {
     private lateinit var hudName: TextView
     private lateinit var hudCounter: TextView
 
-    /** Relative path inside the picked folder (e.g. "sub/clip.mp4") mapped to its content URI. */
+    /** Relative path inside the picked folder (e.g. "sub/clip.mp4") mapped to its playback URI. */
     private var videoFiles = mutableListOf<Pair<String, Uri>>()
 
     /** True while the swipe feed covers the screen; back then leaves the feed instead of the app. */
     private var playbackActive = false
 
-    /** Where the feed was left, so [resumeBtn] can pick it up again. */
-    private var lastPosition = 0
-
+    private var currentIndex = 0
     private var lastBackPressAt = 0L
+
+    /** Where the current playlist came from, so playback can be resumed later. */
+    private var sourceType = ""
+    private var sourceId = ""
+    private var sourcePath = ""
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -81,6 +89,7 @@ class MainActivity : AppCompatActivity() {
         pickBtn = findViewById(R.id.pickBtn)
         lanBtn = findViewById(R.id.lanBtn)
         logBtn = findViewById(R.id.logBtn)
+        settingsBtn = findViewById(R.id.settingsBtn)
         resumeBtn = findViewById(R.id.resumeBtn)
         exitBtn = findViewById(R.id.exitBtn)
         viewPager = findViewById(R.id.viewPager)
@@ -97,8 +106,11 @@ class MainActivity : AppCompatActivity() {
         logBtn.setOnClickListener {
             startActivity(Intent(this, LogActivity::class.java))
         }
+        settingsBtn.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
         resumeBtn.setOnClickListener {
-            showVideos(videoFiles, lastPosition)
+            resumeLastSession()
         }
         exitBtn.setOnClickListener {
             exitPlayback()
@@ -124,16 +136,34 @@ class MainActivity : AppCompatActivity() {
         viewPager.offscreenPageLimit = 1
         viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
-                lastPosition = position
+                currentIndex = position
                 updateHud(position)
                 (viewPager.adapter as? VideoAdapter)?.onPageSelected(position)
+                saveResume()
             }
         })
     }
 
+    override fun onResume() {
+        super.onResume()
+        (viewPager.adapter as? VideoAdapter)?.resumeCurrent()
+        refreshResumeButton()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        saveResume()
+        (viewPager.adapter as? VideoAdapter)?.pauseCurrent()
+    }
+
     // ------------------------------------------------------------ local files
 
-    private fun loadFolder(treeUri: Uri) {
+    private fun loadFolder(
+        treeUri: Uri,
+        resumeName: String? = null,
+        resumeIndex: Int = 0,
+        resumeMs: Long = 0L
+    ) {
         // Release old players before loading new folder
         (viewPager.adapter as? VideoAdapter)?.releaseAll()
 
@@ -150,6 +180,10 @@ class MainActivity : AppCompatActivity() {
         val token = ++scanToken
         showScanning(getString(R.string.scanning_format, 0))
         AppLog.i("Scan", "local scan start uri=$treeUri")
+
+        sourceType = ResumeStore.SOURCE_LOCAL
+        sourceId = ""
+        sourcePath = treeUri.toString()
 
         // Walking the whole tree means many content-resolver round trips, so keep it off the UI thread.
         Thread {
@@ -178,7 +212,7 @@ class MainActivity : AppCompatActivity() {
                 if (scanToken != token) return@post
                 finishScanning()
                 AppLog.i("Scan", "local scan done videos=${found.size}")
-                showVideos(found)
+                showVideos(found, resumeName, resumeIndex, resumeMs)
             }
         }.start()
     }
@@ -229,7 +263,13 @@ class MainActivity : AppCompatActivity() {
 
     // ------------------------------------------------------------- LAN files
 
-    private fun loadLanFolder(serverId: String, path: String) {
+    private fun loadLanFolder(
+        serverId: String,
+        path: String,
+        resumeName: String? = null,
+        resumeIndex: Int = 0,
+        resumeMs: Long = 0L
+    ) {
         val server = ServerStore.get(this).find(serverId) ?: return
         (viewPager.adapter as? VideoAdapter)?.releaseAll()
 
@@ -240,6 +280,10 @@ class MainActivity : AppCompatActivity() {
             "lan scan start server=${server.label.ifBlank { server.host }} " +
                 "host=${server.host} path=/$path"
         )
+
+        sourceType = ResumeStore.SOURCE_LAN
+        sourceId = serverId
+        sourcePath = path
 
         Thread {
             val outcome = runCatching {
@@ -265,7 +309,7 @@ class MainActivity : AppCompatActivity() {
                 finishScanning()
                 outcome.onSuccess {
                     AppLog.i("Scan", "lan scan done videos=${it.size}")
-                    showVideos(it)
+                    showVideos(it, resumeName, resumeIndex, resumeMs)
                 }.onFailure {
                     val message = SmbErrors.message(this, it)
                     AppLog.e("Scan", "lan scan failed: $message", it)
@@ -277,14 +321,64 @@ class MainActivity : AppCompatActivity() {
 
     // --------------------------------------------------------------- playlist
 
-    private fun showVideos(found: List<Pair<String, Uri>>, startAt: Int = 0) {
+    private class Arrangement(
+        val items: List<Pair<String, Uri>>,
+        val index: Int,
+        val seekMs: Long
+    )
+
+    private fun arrange(
+        found: List<Pair<String, Uri>>,
+        resumeName: String?,
+        resumeIndex: Int,
+        resumeMs: Long
+    ): Arrangement {
+        val list = ArrayList(found)
+        val resolved = resolveIndex(list, resumeName, resumeIndex)
+        // Only seek when the saved item is actually the one we are about to start.
+        val seekMs = if (resumeName != null && list.getOrNull(resolved)?.first == resumeName) {
+            resumeMs
+        } else {
+            0L
+        }
+
+        if (PlaybackSettings.order(this) == PlaybackSettings.Order.SHUFFLE) {
+            if (resumeName != null) {
+                // Keep the resumed video first, shuffle everything else.
+                val head = list.removeAt(resolved)
+                list.shuffle()
+                list.add(0, head)
+                return Arrangement(list, 0, seekMs)
+            }
+            list.shuffle()
+            return Arrangement(list, 0, 0L)
+        }
+
+        return Arrangement(list, resolved, seekMs)
+    }
+
+    private fun resolveIndex(list: List<Pair<String, Uri>>, name: String?, index: Int): Int {
+        if (name != null) {
+            val byName = list.indexOfFirst { it.first == name }
+            if (byName >= 0) return byName
+        }
+        return index.coerceIn(0, (list.size - 1).coerceAtLeast(0))
+    }
+
+    private fun showVideos(
+        found: List<Pair<String, Uri>>,
+        resumeName: String? = null,
+        resumeIndex: Int = 0,
+        resumeMs: Long = 0L
+    ) {
         if (found.isEmpty()) {
             Toast.makeText(this, R.string.no_videos, Toast.LENGTH_SHORT).show()
             return
         }
 
-        videoFiles = ArrayList(found)
-        lastPosition = startAt.coerceIn(0, videoFiles.size - 1)
+        val arrangement = arrange(found, resumeName, resumeIndex, resumeMs)
+        videoFiles = ArrayList(arrangement.items)
+        currentIndex = arrangement.index
         playbackActive = true
 
         landing.visibility = View.GONE
@@ -293,20 +387,36 @@ class MainActivity : AppCompatActivity() {
         hud.visibility = View.VISIBLE
         exitBtn.visibility = View.VISIBLE
 
-        val adapter = VideoAdapter(videoFiles)
-        viewPager.adapter = adapter
-        viewPager.post {
-            if (lastPosition > 0 && viewPager.currentItem != lastPosition) {
-                viewPager.setCurrentItem(lastPosition, false)
+        val adapter = VideoAdapter(
+            videos = videoFiles,
+            onEndMode = PlaybackSettings.onEnd(this),
+            onRequestNext = { position ->
+                // "Play the next one" mode: advance the pager when a video finishes.
+                if (position + 1 < videoFiles.size) {
+                    viewPager.setCurrentItem(position + 1, true)
+                }
             }
-            adapter.onPageSelected(lastPosition)
+        )
+        if (arrangement.seekMs > 0) {
+            adapter.requestSeekTo(arrangement.seekMs)
+            AppLog.i("Player", "resume at item=${arrangement.index} pos=${arrangement.seekMs}ms")
         }
-        updateHud(lastPosition)
+
+        viewPager.adapter = adapter
+        adapter.onPageSelected(arrangement.index)
+        viewPager.post {
+            if (viewPager.currentItem != arrangement.index) {
+                viewPager.setCurrentItem(arrangement.index, false)
+            }
+        }
+        updateHud(arrangement.index)
+        saveResume()
     }
 
     /** Leaves the swipe feed and returns to the landing screen, keeping the playlist for resume. */
     private fun exitPlayback() {
         if (!playbackActive) return
+        saveResume()
         playbackActive = false
 
         (viewPager.adapter as? VideoAdapter)?.releaseAll()
@@ -317,14 +427,88 @@ class MainActivity : AppCompatActivity() {
         landing.visibility = View.VISIBLE
         finishScanning()
 
-        if (videoFiles.isNotEmpty()) {
-            resumeBtn.text = getString(R.string.resume_playback_format, videoFiles.size)
-            resumeBtn.visibility = View.VISIBLE
-        } else {
-            resumeBtn.visibility = View.GONE
-        }
-        AppLog.i("Player", "playback exited at item=$lastPosition/${videoFiles.size}")
+        AppLog.i("Player", "playback exited at item=$currentIndex/${videoFiles.size}")
+        refreshResumeButton()
     }
+
+    // ---------------------------------------------------------------- resume
+
+    private fun saveResume() {
+        if (!playbackActive) return
+        val item = videoFiles.getOrNull(currentIndex) ?: return
+        val position = (viewPager.adapter as? VideoAdapter)?.currentPositionMs() ?: 0L
+        ResumeStore.save(
+            this,
+            ResumePoint(
+                sourceType = sourceType,
+                sourceId = sourceId,
+                sourcePath = sourcePath,
+                itemName = item.first,
+                index = currentIndex,
+                positionMs = position,
+                total = videoFiles.size
+            )
+        )
+    }
+
+    private fun refreshResumeButton() {
+        if (playbackActive) return
+        val point = ResumeStore.load(this)
+        if (point == null) {
+            resumeBtn.visibility = View.GONE
+            return
+        }
+        if (point.sourceType == ResumeStore.SOURCE_LAN &&
+            ServerStore.get(this).find(point.sourceId) == null
+        ) {
+            ResumeStore.clear(this)
+            resumeBtn.visibility = View.GONE
+            return
+        }
+        resumeBtn.text = getString(R.string.resume_playback_format, point.total)
+        resumeBtn.visibility = View.VISIBLE
+    }
+
+    private fun resumeLastSession() {
+        val point = ResumeStore.load(this) ?: run {
+            refreshResumeButton()
+            return
+        }
+        AppLog.i(
+            "Resume",
+            "resume ${point.sourceType} source=${point.sourcePath} item=${point.itemName} " +
+                "index=${point.index} pos=${point.positionMs}"
+        )
+
+        // Same playlist still in memory: resume without rescanning the share.
+        if (videoFiles.isNotEmpty() &&
+            point.sourceType == sourceType &&
+            point.sourceId == sourceId &&
+            point.sourcePath == sourcePath
+        ) {
+            showVideos(videoFiles, point.itemName, point.index, point.positionMs)
+            return
+        }
+
+        when (point.sourceType) {
+            ResumeStore.SOURCE_LAN -> loadLanFolder(
+                point.sourceId,
+                point.sourcePath,
+                point.itemName,
+                point.index,
+                point.positionMs
+            )
+
+            else -> loadFolder(
+                Uri.parse(point.sourcePath),
+                point.itemName,
+                point.index,
+                point.positionMs
+            )
+        }
+    }
+
+    // ------------------------------------------------------------- ui helpers
 
     private fun showScanning(message: String) {
         landing.visibility = View.VISIBLE
@@ -351,22 +535,13 @@ class MainActivity : AppCompatActivity() {
         hud.visibility = View.GONE
         exitBtn.visibility = View.GONE
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        refreshResumeButton()
     }
 
     private fun updateHud(position: Int) {
         if (position < 0 || position >= videoFiles.size) return
         hudName.text = videoFiles[position].first
         hudCounter.text = getString(R.string.counter_format, position + 1, videoFiles.size)
-    }
-
-    override fun onPause() {
-        super.onPause()
-        (viewPager.adapter as? VideoAdapter)?.pauseCurrent()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        (viewPager.adapter as? VideoAdapter)?.resumeCurrent()
     }
 
     override fun onDestroy() {

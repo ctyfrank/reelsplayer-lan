@@ -18,7 +18,11 @@ feed.
 **Playback**
 
 - Full-screen vertical swipe feed, tap to pause, long-press the right side for 2x speed
-- Single-video loop, thin progress bar, `current / total` counter
+- Thin progress bar and `current / total` counter
+- **Resume** — the video and the position you stopped at are remembered; after a restart the landing
+  screen offers **Resume (N)** and continues from there
+- **Play order** — sequential, or shuffled for every session
+- **End of a video** — loop it, pause on the last frame, or play the next one
 - **Clean exit** — back (or the button in the top-left corner) leaves the feed and returns to the
   landing screen with the playlist kept for **Resume**; at the landing screen, a first back press
   warns and a second one closes the app
@@ -51,7 +55,8 @@ feed.
 - Seekable SMB data source with a 1 MiB read-ahead window (works with MP4/MKV whose indexes sit at
   the end of the file)
 - 512 MB LRU disk cache, so re-watching and scrubbing are served from local storage
-- Head of the next clip is prefetched while the current one plays (skipped on metered networks)
+- Head of the clip after the next one is prefetched (skipped on metered networks, and it never
+  fights the player for an SMB file that is already open)
 - ExoPlayer load control tuned for a LAN (1.5 s to start, up to 180 s buffered)
 - Player instances are pooled instead of rebuilt on every swipe
 

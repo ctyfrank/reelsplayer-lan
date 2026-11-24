@@ -63,4 +63,13 @@
     <string name="log_view_action">Открыть журнал</string>    <string name="exit_playback">Выйти из просмотра</string>
     <string name="press_back_again">Нажмите «Назад» ещё раз для выхода</string>
     <string name="resume_playback">Продолжить</string>
-    <string name="resume_playback_format">Продолжить (%1$d)</string></resources>
+    <string name="resume_playback_format">Продолжить (%1$d)</string>    <string name="settings_button">Настройки</string>
+    <string name="settings_title">Настройки</string>
+    <string name="settings_order">Порядок воспроизведения</string>
+    <string name="settings_order_sequential">По порядку</string>
+    <string name="settings_order_shuffle">Вперемешку</string>
+    <string name="settings_on_end">Когда видео заканчивается</string>
+    <string name="settings_on_end_loop">Повторять</string>
+    <string name="settings_on_end_pause">Пауза</string>
+    <string name="settings_on_end_next">Следующее видео</string>
+    <string name="settings_hint">Изменения применяются при следующем запуске воспроизведения. Позиция запоминается автоматически.</string></resources>

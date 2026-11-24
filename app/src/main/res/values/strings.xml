@@ -66,4 +66,13 @@
     <string name="log_view_action">View log</string>    <string name="exit_playback">Exit playback</string>
     <string name="press_back_again">Press back again to exit</string>
     <string name="resume_playback">Resume</string>
-    <string name="resume_playback_format">Resume (%1$d)</string></resources>
+    <string name="resume_playback_format">Resume (%1$d)</string>    <string name="settings_button">Settings</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_order">Play order</string>
+    <string name="settings_order_sequential">Sequential</string>
+    <string name="settings_order_shuffle">Shuffle</string>
+    <string name="settings_on_end">When a video ends</string>
+    <string name="settings_on_end_loop">Loop it</string>
+    <string name="settings_on_end_pause">Pause</string>
+    <string name="settings_on_end_next">Play the next video</string>
+    <string name="settings_hint">Changes apply the next time playback starts. Playback position is remembered automatically.</string></resources>
