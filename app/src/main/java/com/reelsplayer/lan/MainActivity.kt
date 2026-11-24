@@ -14,10 +14,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.documentfile.provider.DocumentFile
 import androidx.viewpager2.widget.ViewPager2
+import com.reelsplayer.lan.logging.AppLog
 import com.reelsplayer.lan.smb.ServerStore
 import com.reelsplayer.lan.smb.SmbErrors
 import com.reelsplayer.lan.smb.SmbSession
 import com.reelsplayer.lan.ui.BrowseActivity
+import com.reelsplayer.lan.ui.LogActivity
 import com.reelsplayer.lan.ui.ServersActivity
 
 class MainActivity : AppCompatActivity() {
@@ -26,6 +28,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var landingSubtitle: TextView
     private lateinit var pickBtn: Button
     private lateinit var lanBtn: Button
+    private lateinit var logBtn: Button
     private lateinit var viewPager: ViewPager2
     private lateinit var hud: LinearLayout
     private lateinit var hudName: TextView
@@ -64,6 +67,7 @@ class MainActivity : AppCompatActivity() {
         landingSubtitle = findViewById(R.id.landingSubtitle)
         pickBtn = findViewById(R.id.pickBtn)
         lanBtn = findViewById(R.id.lanBtn)
+        logBtn = findViewById(R.id.logBtn)
         viewPager = findViewById(R.id.viewPager)
         hud = findViewById(R.id.hud)
         hudName = findViewById(R.id.hudName)
@@ -74,6 +78,9 @@ class MainActivity : AppCompatActivity() {
         }
         lanBtn.setOnClickListener {
             lanPicker.launch(Intent(this, ServersActivity::class.java))
+        }
+        logBtn.setOnClickListener {
+            startActivity(Intent(this, LogActivity::class.java))
         }
 
         viewPager.offscreenPageLimit = 1
@@ -103,6 +110,7 @@ class MainActivity : AppCompatActivity() {
         val tree = DocumentFile.fromTreeUri(this, treeUri) ?: return
         val token = ++scanToken
         showScanning(getString(R.string.scanning_format, 0))
+        AppLog.i("Scan", "local scan start uri=$treeUri")
 
         // Walking the whole tree means many content-resolver round trips, so keep it off the UI thread.
         Thread {
@@ -130,6 +138,7 @@ class MainActivity : AppCompatActivity() {
             mainHandler.post {
                 if (scanToken != token) return@post
                 finishScanning()
+                AppLog.i("Scan", "local scan done videos=${found.size}")
                 showVideos(found)
             }
         }.start()
@@ -187,6 +196,11 @@ class MainActivity : AppCompatActivity() {
 
         val token = ++scanToken
         showScanning(getString(R.string.scanning_lan_format, 0))
+        AppLog.i(
+            "Scan",
+            "lan scan start server=${server.label.ifBlank { server.host }} " +
+                "host=${server.host} path=/$path"
+        )
 
         Thread {
             val outcome = runCatching {
@@ -210,8 +224,14 @@ class MainActivity : AppCompatActivity() {
             mainHandler.post {
                 if (scanToken != token) return@post
                 finishScanning()
-                outcome.onSuccess { showVideos(it) }
-                    .onFailure { showError(SmbErrors.message(this, it)) }
+                outcome.onSuccess {
+                    AppLog.i("Scan", "lan scan done videos=${it.size}")
+                    showVideos(it)
+                }.onFailure {
+                    val message = SmbErrors.message(this, it)
+                    AppLog.e("Scan", "lan scan failed: $message", it)
+                    showError(message)
+                }
             }
         }.start()
     }

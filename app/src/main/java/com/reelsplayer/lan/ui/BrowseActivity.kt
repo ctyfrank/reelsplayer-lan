@@ -17,6 +17,7 @@ import androidx.core.view.isVisible
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.reelsplayer.lan.R
+import com.reelsplayer.lan.logging.AppLog
 import com.reelsplayer.lan.smb.ServerStore
 import com.reelsplayer.lan.smb.SmbErrors
 import com.reelsplayer.lan.smb.SmbServer
@@ -127,6 +128,7 @@ class BrowseActivity : AppCompatActivity() {
         emptyView.isVisible = false
         listView.isVisible = false
         pathView.text = if (path.isBlank()) getString(R.string.browse_share_root) else "/$path"
+        AppLog.d("SMB", "browse host=${server.host} path=/${path.ifBlank { "<shares>" }}")
 
         Thread {
             val outcome = runCatching {
@@ -146,6 +148,7 @@ class BrowseActivity : AppCompatActivity() {
                     listView.isVisible = true
                     emptyView.isVisible = result.isEmpty()
                 }.onFailure { error ->
+                    AppLog.e("SMB", "browse /$path failed", error)
                     entries.clear()
                     adapter.notifyDataSetChanged()
                     listView.isVisible = true

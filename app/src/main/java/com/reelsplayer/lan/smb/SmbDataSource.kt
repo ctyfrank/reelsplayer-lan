@@ -1,6 +1,7 @@
 package com.reelsplayer.lan.smb
 
 import android.net.Uri
+import android.os.SystemClock
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.util.UnstableApi
@@ -8,6 +9,7 @@ import androidx.media3.datasource.BaseDataSource
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSourceException
 import androidx.media3.datasource.DataSpec
+import com.reelsplayer.lan.logging.AppLog
 import jcifs.smb.NtStatus
 import jcifs.smb.SmbException
 import jcifs.smb.SmbRandomAccessFile
@@ -28,6 +30,11 @@ class SmbDataSource(
     private var currentUri: Uri? = null
     private var bytesRemaining: Long = 0
 
+    private var descriptor: String = ""
+    private var bytesRead: Long = 0
+    private var seekCount: Int = 0
+    private var openedAt: Long = 0
+
     override fun open(dataSpec: DataSpec): Long {
         transferInitializing(dataSpec)
 
@@ -42,9 +49,18 @@ class SmbDataSource(
                 PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND
             )
 
+        val path = SmbUri.path(dataSpec.uri)
+        descriptor = describe(server, path)
+        val startedAt = SystemClock.elapsedRealtime()
+
         val opened = try {
-            SmbSession.openStream(server, SmbUri.path(dataSpec.uri))
+            SmbSession.openStream(server, path)
         } catch (e: Exception) {
+            AppLog.e(
+                TAG,
+                "open failed $descriptor pos=${dataSpec.position} length=${dataSpec.length}",
+                e
+            )
             throw DataSourceException(e, errorCodeOf(e))
         }
 
@@ -53,21 +69,32 @@ class SmbDataSource(
             length = opened.length()
         } catch (e: Exception) {
             closeQuietly(opened)
+            AppLog.e(TAG, "stat failed $descriptor", e)
             throw DataSourceException(e, errorCodeOf(e))
         }
 
         if (dataSpec.position > length) {
             closeQuietly(opened)
+            AppLog.e(
+                TAG,
+                "position out of range $descriptor pos=${dataSpec.position} size=$length"
+            )
             throw DataSourceException(
-                IllegalStateException("Position ${dataSpec.position} is beyond the end of $length bytes"),
+                IllegalStateException(
+                    "Position ${dataSpec.position} is beyond the end of $length bytes"
+                ),
                 @Suppress("DEPRECATION") DataSourceException.POSITION_OUT_OF_RANGE
             )
         }
 
         try {
-            if (dataSpec.position > 0) opened.seek(dataSpec.position)
+            if (dataSpec.position > 0) {
+                opened.seek(dataSpec.position)
+                seekCount++
+            }
         } catch (e: Exception) {
             closeQuietly(opened)
+            AppLog.e(TAG, "seek failed $descriptor pos=${dataSpec.position}", e)
             throw DataSourceException(e, errorCodeOf(e))
         }
 
@@ -78,6 +105,14 @@ class SmbDataSource(
         } else {
             length - dataSpec.position
         }
+        bytesRead = 0
+        openedAt = SystemClock.elapsedRealtime()
+
+        AppLog.i(
+            TAG,
+            "open $descriptor pos=${dataSpec.position} request=${dataSpec.length} " +
+                "size=$length connect=${SystemClock.elapsedRealtime() - startedAt}ms"
+        )
 
         transferStarted(dataSpec)
         return bytesRemaining
@@ -92,6 +127,11 @@ class SmbDataSource(
         val read = try {
             source.read(buffer, offset, toRead)
         } catch (e: Exception) {
+            AppLog.e(
+                TAG,
+                "read failed $descriptor at=${bytesRead} remaining=$bytesRemaining",
+                e
+            )
             throw DataSourceException(e, errorCodeOf(e))
         }
 
@@ -100,6 +140,7 @@ class SmbDataSource(
             return C.RESULT_END_OF_INPUT
         }
 
+        bytesRead += read
         bytesRemaining -= read
         bytesTransferred(read)
         return read
@@ -108,11 +149,27 @@ class SmbDataSource(
     override fun getUri(): Uri? = currentUri
 
     override fun close() {
+        val wasOpen = stream != null
         stream?.let { closeQuietly(it) }
         stream = null
         currentUri = null
         transferEnded()
+
+        if (wasOpen) {
+            val elapsed = (SystemClock.elapsedRealtime() - openedAt).coerceAtLeast(1)
+            val kbps = bytesRead / 1024.0 / (elapsed / 1000.0)
+            AppLog.i(
+                TAG,
+                "close $descriptor read=${bytesRead}B in ${elapsed}ms " +
+                    "(${"%.0f".format(kbps)} KB/s) seeks=$seekCount"
+            )
+        }
     }
+
+    private fun describe(server: SmbServer, path: String): String =
+        "host=${server.host}:${server.port} share=${server.share.ifBlank { "-" }} " +
+            "user=${server.username.ifBlank { "-" }} guest=${server.guest} " +
+            "smb1=${server.smb1} path=/$path"
 
     private fun closeQuietly(target: SmbRandomAccessFile) {
         try {
@@ -140,5 +197,9 @@ class SmbDataSource(
         private val serverResolver: (String) -> SmbServer?
     ) : DataSource.Factory {
         override fun createDataSource(): DataSource = SmbDataSource(serverResolver)
+    }
+
+    private companion object {
+        const val TAG = "SMB"
     }
 }

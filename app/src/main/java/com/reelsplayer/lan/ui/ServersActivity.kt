@@ -20,6 +20,7 @@ import com.google.android.material.checkbox.MaterialCheckBox
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.textfield.TextInputEditText
 import com.reelsplayer.lan.R
+import com.reelsplayer.lan.logging.AppLog
 import com.reelsplayer.lan.smb.ServerStore
 import com.reelsplayer.lan.smb.SmbErrors
 import com.reelsplayer.lan.smb.SmbServer
@@ -222,6 +223,12 @@ class ServersActivity : AppCompatActivity() {
 
     private fun testServer(server: SmbServer) {
         Toast.makeText(this, R.string.connecting, Toast.LENGTH_SHORT).show()
+        AppLog.i(
+            "SMB",
+            "test connection host=${server.host}:${server.port} " +
+                "share=${server.share.ifBlank { "-" }} user=${server.username.ifBlank { "-" }} " +
+                "guest=${server.guest} smb1=${server.smb1}"
+        )
         Thread {
             val outcome = runCatching {
                 if (server.share.isNotBlank()) {
@@ -233,12 +240,14 @@ class ServersActivity : AppCompatActivity() {
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 outcome.onSuccess { count ->
+                    AppLog.i("SMB", "test connection ok, $count entries")
                     Toast.makeText(
                         this,
                         getString(R.string.connection_ok, count),
                         Toast.LENGTH_LONG
                     ).show()
                 }.onFailure { error ->
+                    AppLog.e("SMB", "test connection failed", error)
                     Toast.makeText(
                         this,
                         getString(R.string.connection_failed, SmbErrors.message(this, error)),

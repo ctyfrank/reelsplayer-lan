@@ -16,6 +16,7 @@ import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import com.reelsplayer.lan.logging.AppLog
 import com.reelsplayer.lan.smb.ServerStore
 import com.reelsplayer.lan.smb.SmbDataSource
 import com.reelsplayer.lan.smb.SmbUri
@@ -34,6 +35,7 @@ import java.util.concurrent.Executors
 @UnstableApi
 object PlaybackEngine {
 
+    private const val TAG = "Player"
     private const val CACHE_BYTES = 512L * 1024 * 1024
     private const val PREFETCH_BYTES = 8L * 1024 * 1024
 
@@ -79,6 +81,12 @@ object PlaybackEngine {
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
+
+        AppLog.i(
+            TAG,
+            "cache ready dir=${File(app.cacheDir, "stream_cache").absolutePath} " +
+                "limit=${CACHE_BYTES / 1024 / 1024}MB prefetch=${PREFETCH_BYTES / 1024 / 1024}MB"
+        )
     }
 
     fun newPlayer(context: Context): ExoPlayer {
@@ -106,6 +114,7 @@ object PlaybackEngine {
 
         prefetchExecutor.execute {
             var dataSource: DataSource? = null
+            val startedAt = android.os.SystemClock.elapsedRealtime()
             try {
                 dataSource = factory.createDataSource()
                 dataSource.open(DataSpec.Builder().setUri(uri).setLength(PREFETCH_BYTES).build())
@@ -116,8 +125,14 @@ object PlaybackEngine {
                     if (read == C.RESULT_END_OF_INPUT) break
                     total += read
                 }
-            } catch (_: Exception) {
+                AppLog.d(
+                    TAG,
+                    "prefetch $uri -> ${total / 1024}KB in " +
+                        "${android.os.SystemClock.elapsedRealtime() - startedAt}ms"
+                )
+            } catch (e: Exception) {
                 // Prefetch is best effort: failures only mean no head start.
+                AppLog.d(TAG, "prefetch failed $uri: ${AppLog.describe(e)}")
             } finally {
                 try {
                     dataSource?.close()

@@ -49,4 +49,15 @@
     <string name="error_timeout">Время ожидания истекло</string>
     <string name="error_unreachable">Сервер недоступен</string>
     <string name="error_generic">Что-то пошло не так</string>
-</resources>
+    <string name="log_button">Журнал</string>
+    <string name="log_title">Журнал</string>
+    <string name="log_share">Экспорт</string>
+    <string name="log_copy">Копировать</string>
+    <string name="log_clear">Очистить</string>
+    <string name="log_verbose">Подробный журнал</string>
+    <string name="log_empty">Журнал пуст</string>
+    <string name="log_share_title">Экспорт журнала</string>
+    <string name="log_share_subject">Журнал ReelsPlayer LAN</string>
+    <string name="log_copied">Журнал скопирован</string>
+    <string name="log_cleared">Журнал очищен</string>
+    <string name="log_view_action">Открыть журнал</string></resources>

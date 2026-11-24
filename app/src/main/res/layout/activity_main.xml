@@ -47,6 +47,15 @@
             android:text="@string/lan_button"
             android:textAllCaps="false" />
 
+        <Button
+            android:id="@+id/logBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/log_button"
+            android:textAllCaps="false"
+            android:textSize="12sp" />
+
     </LinearLayout>
 
     <!-- Player -->

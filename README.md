@@ -35,6 +35,14 @@ feed.
 - **Folder browser**: walk the share level by level; each server remembers the last folder played
 - **Recursive scan** of the chosen share folder into the swipe feed
 
+**Diagnostics**
+
+- **Built-in log** — playback failures, SMB connect/list/stream details and scan results are recorded
+  with their full cause chain (including the SMB NT status), not just a toast
+- **One-tap export** — the log screen writes a single report file (device, app version, network,
+  saved servers without passwords) and opens the share sheet, so it can be sent for analysis
+- **Crash capture** — an uncaught exception is written to the same log before the process dies
+
 **Streaming quality**
 
 - Seekable SMB data source with a 1 MiB read-ahead window (works with MP4/MKV whose indexes sit at
@@ -58,6 +66,16 @@ Landing screen → **Pick folder** → choose the folder → swipe.
 3. Tap the server, browse into the folder with the videos, tap **Play this folder**.
 
 Long-press a server in the list to edit, test or delete it.
+
+### When a video will not play
+
+A playback failure shows a snackbar with **View log**. The log screen lists what happened — which
+server, which file, the ExoPlayer error code and the underlying SMB status. **Export** saves the
+whole report to a file and opens the share sheet; **Copy** puts it on the clipboard. Turn on
+**Verbose logging** first if you want per-folder scan and per-item details as well.
+
+The log is also mirrored to `filesDir/reelsplayer-lan.log` (rotated at 2 MB), so a crash report from
+a previous run is still there after a restart.
 
 Notes:
 

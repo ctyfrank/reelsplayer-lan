@@ -1,5 +1,6 @@
 package com.reelsplayer.lan
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -9,7 +10,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
-import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -19,7 +19,11 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.snackbar.Snackbar
+import com.reelsplayer.lan.logging.AppLog
+import com.reelsplayer.lan.logging.UriDiagnostics
 import com.reelsplayer.lan.player.PlaybackEngine
+import com.reelsplayer.lan.ui.LogActivity
 
 class VideoAdapter(
     private val videos: List<Pair<String, Uri>>
@@ -66,7 +70,8 @@ class VideoAdapter(
         super.onViewAttachedToWindow(holder)
         val position = holder.bindingAdapterPosition
         if (position == RecyclerView.NO_POSITION) return
-        val (_, uri) = videos[position]
+        val (name, uri) = videos[position]
+        AppLog.d("Player", "bind item=$position name=$name")
 
         attachedHolders[position]?.let { old ->
             old.playerView.player = null
@@ -98,7 +103,24 @@ class VideoAdapter(
                 override fun onPlayerError(error: PlaybackException) {
                     val position = playerPositions[player] ?: return
                     val view = attachedHolders[position]?.itemView ?: return
-                    Toast.makeText(view.context, R.string.playback_error, Toast.LENGTH_SHORT).show()
+                    val (name, uri) = videos.getOrNull(position) ?: Pair("?", null)
+                    AppLog.e(
+                        "Player",
+                        buildString {
+                            append("playback failed item=").append(position)
+                            append(" name=").append(name)
+                            append(" uri=").append(uri?.let { UriDiagnostics.describe(view.context, it) })
+                            append(" code=").append(error.errorCodeName)
+                            append(" pos=").append(player.currentPosition)
+                            append(" duration=").append(player.duration)
+                        },
+                        error
+                    )
+                    Snackbar.make(view, R.string.playback_error, Snackbar.LENGTH_LONG)
+                        .setAction(R.string.log_view_action) {
+                            view.context.startActivity(Intent(view.context, LogActivity::class.java))
+                        }
+                        .show()
                 }
             })
         }
@@ -210,6 +232,7 @@ class VideoAdapter(
         val previousPosition = currentPosition
         currentPosition = position
         userPaused = false
+        AppLog.d("Player", "page selected $position/${videos.size}")
         for ((pos, holder) in attachedHolders) {
             val player = holder.player ?: continue
             if (pos == position) {

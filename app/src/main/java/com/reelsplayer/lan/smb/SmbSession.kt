@@ -1,6 +1,7 @@
 package com.reelsplayer.lan.smb
 
 import android.net.Uri
+import com.reelsplayer.lan.logging.AppLog
 import jcifs.CIFSContext
 import jcifs.config.PropertyConfiguration
 import jcifs.context.BaseContext
@@ -18,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object SmbSession {
 
+    private const val TAG = "SMB"
     private const val READ_TIMEOUT_MS = 30_000
     private const val CONNECT_TIMEOUT_MS = 15_000
 
@@ -46,6 +48,11 @@ object SmbSession {
 
         val created = createContext(server)
         contexts[server.id] = CachedContext(loginKey, created)
+        AppLog.i(
+            TAG,
+            "session created host=${server.host}:${server.port} " +
+                "user=${server.username.ifBlank { "-" }} guest=${server.guest} smb1=${server.smb1}"
+        )
         return created
     }
 
@@ -74,7 +81,10 @@ object SmbSession {
 
     /** Closes and forgets the session of one server (call after editing or deleting it). */
     fun disconnect(serverId: String) {
-        contexts.remove(serverId)?.let { closeQuietly(it.context) }
+        contexts.remove(serverId)?.let {
+            closeQuietly(it.context)
+            AppLog.d(TAG, "session closed server=$serverId")
+        }
     }
 
     fun disconnectAll() {
@@ -120,14 +130,17 @@ object SmbSession {
     fun shares(server: SmbServer): List<String> {
         val root = file(server, "", directory = true)
         return try {
-            root.listFiles()
+            val result = root.listFiles()
                 .mapNotNull { child ->
                     val name = child.name.trim().trimEnd('/')
                     if (child.isDirectory && name.isNotEmpty() && !isIgnoredDirectory(name)) name else null
                 }
                 .distinct()
                 .sortedBy { it.lowercase() }
+            AppLog.i(TAG, "shares host=${server.host} -> ${result.size} (${result.joinToString(",")})")
+            result
         } catch (e: Exception) {
+            AppLog.e(TAG, "shares failed host=${server.host}:${server.port}", e)
             throw e
         } finally {
             try {
@@ -141,13 +154,18 @@ object SmbSession {
     fun directories(server: SmbServer, path: String): List<SmbDirectory> {
         val dir = file(server, path, directory = true)
         return try {
-            dir.listFiles()
+            val result = dir.listFiles()
                 .mapNotNull { child ->
                     val name = child.name.trim().trimEnd('/')
                     if (!child.isDirectory || name.isEmpty() || isIgnoredDirectory(name)) null
                     else SmbDirectory(name, joinPath(path, name))
                 }
                 .sortedBy { it.name.lowercase() }
+            AppLog.d(TAG, "list path=/$path -> ${result.size} folders")
+            result
+        } catch (e: Exception) {
+            AppLog.e(TAG, "list failed host=${server.host} path=/$path", e)
+            throw e
         } finally {
             try {
                 dir.close()
@@ -172,6 +190,12 @@ object SmbSession {
     ): List<Pair<String, Uri>> {
         val found = ArrayList<Pair<String, Uri>>()
         val visited = HashSet<String>()
+        val startedAt = System.currentTimeMillis()
+        AppLog.i(
+            TAG,
+            "scan start host=${server.host} path=/${path.ifBlank { server.share }} " +
+                "user=${server.username.ifBlank { "-" }}"
+        )
 
         fun walk(currentPath: String, relative: String, failOnError: Boolean) {
             if (isStale()) return
@@ -183,8 +207,11 @@ object SmbSession {
                 } catch (e: Exception) {
                     // The first listing must surface errors (wrong password, missing share);
                     // failures deeper in the tree only skip that sub-folder.
-                    if (failOnError) throw e else return
+                    if (failOnError) throw e
+                    AppLog.w(TAG, "skip folder /$currentPath: ${AppLog.describe(e)}")
+                    return
                 }
+                AppLog.d(TAG, "scan dir /$currentPath -> ${children.size} entries")
                 for (child in children) {
                     if (isStale()) return
                     val name = child.name.trim().trimEnd('/')
@@ -211,7 +238,14 @@ object SmbSession {
         }
 
         walk(path, relativePrefix, failOnError = true)
-        return found.sortedBy { it.first.lowercase() }
+        val sorted = found.sortedBy { it.first.lowercase() }
+        AppLog.i(
+            TAG,
+            "scan done path=/${path.ifBlank { server.share }} videos=${sorted.size} " +
+                "in ${System.currentTimeMillis() - startedAt}ms" +
+                if (isStale()) " (cancelled)" else ""
+        )
+        return sorted
     }
 
     // ---------------------------------------------------------------- utils
