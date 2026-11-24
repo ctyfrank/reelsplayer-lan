@@ -19,6 +19,9 @@ feed.
 
 - Full-screen vertical swipe feed, tap to pause, long-press the right side for 2x speed
 - Single-video loop, thin progress bar, `current / total` counter
+- **Clean exit** — back (or the button in the top-left corner) leaves the feed and returns to the
+  landing screen with the playlist kept for **Resume**; at the landing screen, a first back press
+  warns and a second one closes the app
 
 **Local files**
 

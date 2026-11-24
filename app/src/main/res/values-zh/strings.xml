@@ -60,4 +60,7 @@
     <string name="log_share_subject">ReelsPlayer LAN 日志</string>
     <string name="log_copied">日志已复制</string>
     <string name="log_cleared">日志已清空</string>
-    <string name="log_view_action">查看日志</string></resources>
+    <string name="log_view_action">查看日志</string>    <string name="exit_playback">退出播放</string>
+    <string name="press_back_again">再按一次退出</string>
+    <string name="resume_playback">继续播放</string>
+    <string name="resume_playback_format">继续播放（%1$d）</string></resources>

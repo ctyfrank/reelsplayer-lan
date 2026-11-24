@@ -5,11 +5,14 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.View
 import android.widget.Button
+import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.documentfile.provider.DocumentFile
@@ -29,6 +32,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pickBtn: Button
     private lateinit var lanBtn: Button
     private lateinit var logBtn: Button
+    private lateinit var resumeBtn: Button
+    private lateinit var exitBtn: ImageButton
     private lateinit var viewPager: ViewPager2
     private lateinit var hud: LinearLayout
     private lateinit var hudName: TextView
@@ -36,6 +41,14 @@ class MainActivity : AppCompatActivity() {
 
     /** Relative path inside the picked folder (e.g. "sub/clip.mp4") mapped to its content URI. */
     private var videoFiles = mutableListOf<Pair<String, Uri>>()
+
+    /** True while the swipe feed covers the screen; back then leaves the feed instead of the app. */
+    private var playbackActive = false
+
+    /** Where the feed was left, so [resumeBtn] can pick it up again. */
+    private var lastPosition = 0
+
+    private var lastBackPressAt = 0L
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -68,6 +81,8 @@ class MainActivity : AppCompatActivity() {
         pickBtn = findViewById(R.id.pickBtn)
         lanBtn = findViewById(R.id.lanBtn)
         logBtn = findViewById(R.id.logBtn)
+        resumeBtn = findViewById(R.id.resumeBtn)
+        exitBtn = findViewById(R.id.exitBtn)
         viewPager = findViewById(R.id.viewPager)
         hud = findViewById(R.id.hud)
         hudName = findViewById(R.id.hudName)
@@ -82,10 +97,34 @@ class MainActivity : AppCompatActivity() {
         logBtn.setOnClickListener {
             startActivity(Intent(this, LogActivity::class.java))
         }
+        resumeBtn.setOnClickListener {
+            showVideos(videoFiles, lastPosition)
+        }
+        exitBtn.setOnClickListener {
+            exitPlayback()
+        }
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (playbackActive) {
+                    exitPlayback()
+                    return
+                }
+                // At the landing screen: first back warns, a second one within two seconds exits.
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastBackPressAt < EXIT_WINDOW_MS) {
+                    finish()
+                } else {
+                    lastBackPressAt = now
+                    Toast.makeText(this@MainActivity, R.string.press_back_again, Toast.LENGTH_SHORT).show()
+                }
+            }
+        })
 
         viewPager.offscreenPageLimit = 1
         viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
+                lastPosition = position
                 updateHud(position)
                 (viewPager.adapter as? VideoAdapter)?.onPageSelected(position)
             }
@@ -238,27 +277,62 @@ class MainActivity : AppCompatActivity() {
 
     // --------------------------------------------------------------- playlist
 
-    private fun showVideos(found: List<Pair<String, Uri>>) {
+    private fun showVideos(found: List<Pair<String, Uri>>, startAt: Int = 0) {
         if (found.isEmpty()) {
             Toast.makeText(this, R.string.no_videos, Toast.LENGTH_SHORT).show()
             return
         }
 
         videoFiles = ArrayList(found)
+        lastPosition = startAt.coerceIn(0, videoFiles.size - 1)
+        playbackActive = true
+
         landing.visibility = View.GONE
+        resumeBtn.visibility = View.GONE
         viewPager.visibility = View.VISIBLE
         hud.visibility = View.VISIBLE
+        exitBtn.visibility = View.VISIBLE
 
         val adapter = VideoAdapter(videoFiles)
         viewPager.adapter = adapter
-        viewPager.post { adapter.onPageSelected(0) }
-        updateHud(0)
+        viewPager.post {
+            if (lastPosition > 0 && viewPager.currentItem != lastPosition) {
+                viewPager.setCurrentItem(lastPosition, false)
+            }
+            adapter.onPageSelected(lastPosition)
+        }
+        updateHud(lastPosition)
+    }
+
+    /** Leaves the swipe feed and returns to the landing screen, keeping the playlist for resume. */
+    private fun exitPlayback() {
+        if (!playbackActive) return
+        playbackActive = false
+
+        (viewPager.adapter as? VideoAdapter)?.releaseAll()
+        viewPager.adapter = null
+        viewPager.visibility = View.GONE
+        hud.visibility = View.GONE
+        exitBtn.visibility = View.GONE
+        landing.visibility = View.VISIBLE
+        finishScanning()
+
+        if (videoFiles.isNotEmpty()) {
+            resumeBtn.text = getString(R.string.resume_playback_format, videoFiles.size)
+            resumeBtn.visibility = View.VISIBLE
+        } else {
+            resumeBtn.visibility = View.GONE
+        }
+        AppLog.i("Player", "playback exited at item=$lastPosition/${videoFiles.size}")
     }
 
     private fun showScanning(message: String) {
         landing.visibility = View.VISIBLE
         viewPager.visibility = View.GONE
         hud.visibility = View.GONE
+        exitBtn.visibility = View.GONE
+        resumeBtn.visibility = View.GONE
+        playbackActive = false
         pickBtn.isEnabled = false
         lanBtn.isEnabled = false
         landingSubtitle.text = message
@@ -271,9 +345,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showError(message: String) {
+        playbackActive = false
         landing.visibility = View.VISIBLE
         viewPager.visibility = View.GONE
         hud.visibility = View.GONE
+        exitBtn.visibility = View.GONE
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
@@ -303,5 +379,8 @@ class MainActivity : AppCompatActivity() {
     private companion object {
         /** How many videos to find between two "Scanning…" updates. */
         const val PROGRESS_UPDATE_EVERY = 25
+
+        /** Window in which a second back press at the landing screen exits the app. */
+        const val EXIT_WINDOW_MS = 2_000L
     }
 }

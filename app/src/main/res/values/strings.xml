@@ -63,4 +63,7 @@
     <string name="log_share_subject">ReelsPlayer LAN log</string>
     <string name="log_copied">Log copied</string>
     <string name="log_cleared">Log cleared</string>
-    <string name="log_view_action">View log</string></resources>
+    <string name="log_view_action">View log</string>    <string name="exit_playback">Exit playback</string>
+    <string name="press_back_again">Press back again to exit</string>
+    <string name="resume_playback">Resume</string>
+    <string name="resume_playback_format">Resume (%1$d)</string></resources>
